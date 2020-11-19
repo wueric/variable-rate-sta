@@ -203,6 +203,7 @@ def torch_batch_parallel_pack_sta_bin_select_matrix(
         n_bins_depth: int,
         bin_interval_samples: Union[int, float],
         frame_cutoff_times: np.ndarray,
+        batch_size : int,
         device: torch.device) \
         -> Tuple[torch.Tensor, Dict[int, int]]:
     '''
@@ -256,8 +257,8 @@ def torch_batch_parallel_pack_sta_bin_select_matrix(
         cell_idx_offset_post[cell_id] = to_include
 
     bin_select_matrix = torch.zeros((n_cells, n_bins_depth, n_frames), dtype=torch.float32, device=device)
-    for ii in range(0, n_cells, CELL_BATCH_SIZE):
-        max_ii = min(n_cells, ii + CELL_BATCH_SIZE)
+    for ii in range(0, n_cells, batch_size):
+        max_ii = min(n_cells, ii + batch_size)
         n_cells_in_batch = max_ii - ii
 
         spikes_cat = np.concatenate([relevant_spikes_dict[cell_id] for cell_id in cell_order[ii:max_ii]], axis=0)
@@ -289,6 +290,7 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
                               frames_per_ttl: int,
                               bin_interval_samples: Union[int, float],
                               n_bins_depth: int,
+                              cell_batch_size : int,
                               device: torch.device) -> Dict[int, np.ndarray]:
     '''
 
@@ -343,6 +345,7 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
                 n_bins_depth,
                 bin_interval_samples,
                 ttl_bins,
+                cell_batch_size,
                 device
             )
 
@@ -366,6 +369,7 @@ if __name__ == '__main__':
     parser.add_argument('ds_path', type=str, help='path to Vision dataset')
     parser.add_argument('ds_name', type=str, help='name of Vision dataset')
     parser.add_argument('xml_path', type=str, help='path to stimulus XML file')
+    parser.add_argument('-b', '--batch', type=int, help='number of cells batch size', default=CELL_BATCH_SIZE)
 
     args = parser.parse_args()
 
@@ -386,6 +390,8 @@ if __name__ == '__main__':
                                          100,
                                          75,
                                          121,
+                                         args.batch,
                                          device)
+
     with open('/Volumes/Lab/Users/ericwu/debug/sta_dict2.p', 'wb') as pfile:
         pickle.dump(sta_dict, pfile)
