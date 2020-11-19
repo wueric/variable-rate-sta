@@ -189,8 +189,11 @@ def torch_parallel_spike_bin_select_matrix_piece(spike_time_vector: np.ndarray,
     intersection_area = sum_area_torch[None, None, :] - (upper_endpoint_maximum - lower_endpoint_minimum)
     intersection_area[torch.logical_not(does_overlap)] = 0.0
 
+    # shape (n_cells, n_all_spikes)
+    reduction_matrix_torch = torch.tensor(reduction_matrix, dtype=torch.float32, device=device)
+
     # shape (n_sta_bins, n_frames)
-    return torch.einsum('sc,sbf->cbf', reduction_matrix, intersection_area)
+    return torch.einsum('cs,sbf->cbf', reduction_matrix_torch, intersection_area)
 
 
 def torch_batch_parallel_pack_sta_bin_select_matrix(
@@ -266,14 +269,16 @@ def torch_batch_parallel_pack_sta_bin_select_matrix(
             reduction_mat[idx, offset:offset + n_relevant_spikes_for_cell] = 1.0
             offset += n_relevant_spikes_for_cell
 
-        bin_select_matrix[ii:max_ii, ...] = torch_parallel_spike_bin_select_matrix_piece(
-            spikes_cat,
-            reduction_mat,
-            n_bins_depth,
-            bin_interval_samples,
-            frame_cutoff_times,
-            device
-        )
+        if spikes_cat.shape[0] > 0:
+
+            bin_select_matrix[ii:max_ii, ...] = torch_parallel_spike_bin_select_matrix_piece(
+                spikes_cat,
+                reduction_mat,
+                n_bins_depth,
+                bin_interval_samples,
+                frame_cutoff_times,
+                device
+            )
 
     return bin_select_matrix, cell_idx_offset_post
 
@@ -379,8 +384,8 @@ if __name__ == '__main__':
                                          ttl_times,
                                          framegen,
                                          100,
-                                         50,
-                                         181,
+                                         75,
+                                         121,
                                          device)
-    with open('/Volumes/Lab/Users/ericwu/debug/sta_dict.p', 'wb') as pfile:
+    with open('/Volumes/Lab/Users/ericwu/debug/sta_dict2.p', 'wb') as pfile:
         pickle.dump(sta_dict, pfile)
