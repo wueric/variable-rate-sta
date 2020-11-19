@@ -226,8 +226,8 @@ if __name__ == '__main__':
                                          ttl_times,
                                          framegen,
                                          100,
-                                         150,
-                                         61,
+                                         50,
+                                         181,
                                          device)
     with open('/Volumes/Lab/Users/ericwu/debug/sta_dict.p', 'wb') as pfile:
         pickle.dump(sta_dict, pfile)
