@@ -68,6 +68,21 @@ if __name__ == '__main__':
 
     if args.visionwriter:
 
+        sta_container_by_cell_id = {}  # type: Dict[int, vl.STAContainer]
+        for cell_id, sta_matrix in sta_dict.items():
+            depth, width, height, n_channels = sta_matrix.shape
+            no_error = np.zeros_like(sta_matrix[..., 0])
+            sta_container = vl.STAContainer(framegen.stixel_width,
+                                            1.0 / args.frame_rate,
+                                            0,
+                                            sta_matrix[..., 0],
+                                            no_error,
+                                            sta_matrix[..., 1],
+                                            no_error,
+                                            sta_matrix[..., 2],
+                                            no_error)
+            sta_container_by_cell_id[cell_id] = sta_container
+
         with vw.STAWriter(args.output,
                           args.ds_name,
                           framegen.field_width,
@@ -77,7 +92,7 @@ if __name__ == '__main__':
                           0,
                           framegen.stixel_width) as staw:
 
-            pass
+            staw.write_sta_by_cell_id(sta_container_by_cell_id)
 
     else:
         with open(args.output, 'wb') as pfile:
