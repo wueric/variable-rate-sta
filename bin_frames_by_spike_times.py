@@ -48,17 +48,15 @@ def torch_single_spike_bin_select_matrix_piece(spike_time_vector: np.ndarray,
     does_overlap = torch.logical_and(distance_to_frame_bin_end > 0.0, distance_to_frame_bin_begin > 0.0)
 
     # shape (n_spikes, n_sta_bins, n_frames)
-    upper_endpoint_maximum = torch.max(frame_cutoff_times_torch[None, 1:, None], spike_bin_times[:, None, 1:])
-    lower_endpoint_minimum = torch.min(frame_cutoff_times_torch[None, :-1, None], spike_bin_times[:, None, :-1])
+    upper_endpoint_maximum = torch.max(frame_cutoff_times_torch[None, None, 1:], spike_bin_times[:, 1:, None])
+    lower_endpoint_minimum = torch.min(frame_cutoff_times_torch[None, None, :-1], spike_bin_times[:, :-1, None])
 
     # shape (n_spikes, n_sta_bins, n_frames)
     intersection_area = sum_area - (upper_endpoint_maximum - lower_endpoint_minimum)
-
-    weight_matrix = torch.zeros_like(intersection_area, dtype=torch.float32, device=device)
-    weight_matrix[does_overlap] = intersection_area[weight_matrix]
+    intersection_area[torch.logical_not(does_overlap)] = 0.0
 
     # shape (n_sta_bins, n_frames)
-    return torch.sum(weight_matrix, dim=0)
+    return torch.sum(intersection_area, dim=0)
 
 
 def torch_pack_sta_bin_select_matrix(spikes_by_cell_id: Dict[int, np.ndarray],
@@ -89,7 +87,7 @@ def torch_pack_sta_bin_select_matrix(spikes_by_cell_id: Dict[int, np.ndarray],
     earliest_relevant_spike_sample = frame_cutoff_times[0] - sta_length_in_electrical_samples
     last_relevant_spike_sample = sta_length_in_electrical_samples + frame_cutoff_times[-1]
 
-    bin_select_matrix = torch.zeros((n_cells, n_frames, n_bins_depth), dtype=torch.float32, device=device)
+    bin_select_matrix = torch.zeros((n_cells, n_bins_depth, n_frames), dtype=torch.float32, device=device)
 
     cell_idx_offset_post = {}  # type: Dict[int, int]
     for batch_idx, cell_id in enumerate(cell_order):
@@ -118,7 +116,7 @@ def torch_pack_sta_bin_select_matrix(spikes_by_cell_id: Dict[int, np.ndarray],
                 device
             )
 
-            bin_select_matrix += weights_mat_single_spike
+            bin_select_matrix[batch_idx, ...] += weights_mat_single_spike
 
         to_include = cell_idx_offset[cell_id]
         while to_include < spike_times_vector.shape[0] and \
@@ -170,7 +168,7 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
             frame_batch = frame_generator.generate_block_of_frames(
                 frames_per_ttl)  # shape (frames_per_ttl, width, height, 3)
 
-            frame_batch_torch = torch.tensor(frame_batch, dtype=torch.float32, device=device)
+            frame_batch_torch = (torch.tensor(frame_batch, dtype=torch.float32, device=device) - 127.5) / 255.0
             ttl_bins = np.linspace(ttl_a, ttl_b, frames_per_ttl + 1)
 
             weights_matrix, spikes_idx_offset = torch_pack_sta_bin_select_matrix(spikes_by_cell_id,
