@@ -1,4 +1,5 @@
 from lib.torch_sta import bin_frames_by_spike_times
+from lib.save_data import generate_save_dict
 
 import numpy as np
 import torch
@@ -13,24 +14,17 @@ import argparse
 from typing import Dict, Tuple, Union, Sequence
 import os
 
-CELL_BATCH_SIZE = 64
+CELL_BATCH_SIZE = 512
 N_DISPLAY_FRAMES_PER_TTL = 100
 SAMPLE_FREQ = 20000
 
 
-def generate_save_dict(sta_by_cell_id: Dict[int, np.ndarray],
-                       sta_calculated_frame_rate: float):
-    ret_dict = {
-        'sta_by_cell_id': sta_by_cell_id,
-        'calculated_frame_rate': sta_calculated_frame_rate
-    }
 
-    return ret_dict
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='compute STAs at arbitrary frequency (frame rate and frame instabilities do not matter!')
+        description='compute STAs at arbitrary frequency (frame rate and frame instabilities do not matter!)')
 
     parser.add_argument('ds_path', type=str, help='path to Vision dataset')
     parser.add_argument('ds_name', type=str, help='name of Vision dataset')

@@ -1,78 +1,88 @@
-import argparse
+from lib.torch_sta import bin_spike_times_by_frames
+from lib.save_data import generate_save_dict
 
 import numpy as np
+import torch
 
 import visionloader as vl
 import visionwriter as vw
+from whitenoise import RandomNoiseFrameGenerator
 
-from typing import List, Tuple, Dict
+import pickle
 
-def fast_get_spike_count_multiple_cells(vision_dataset: vl.VisionCellDataTable,
-                                        good_cell_ordering: List[List[int]],
-                                        sample_interval_list_increasing: List[Tuple[int, int]]) -> np.ndarray:
-    '''
-    Function for binning spikes, if we include likely duplicates with nonoverlapping spike times
+import argparse
+from typing import Dict, Tuple, Union, Sequence
+import os
 
-    We don't need a sophisticated algorithm for this, because we just care about the onset spikes
-        with no sub-bin temporal resolution
-    :param vision_dataset:
-    :param good_cell_ordering:
-    :param sample_interval_list_increasing:
-    :return:
-    '''
-    n_images = len(sample_interval_list_increasing)
-    n_cells = len(good_cell_ordering)
+CELL_BATCH_SIZE = 64
+N_DISPLAY_FRAMES_PER_TTL = 100
+SAMPLE_FREQ = 20000
 
-    # generate output matrix
-    output_matrix = np.zeros((n_images, n_cells),
-                             dtype=np.int32)
-
-    # generate multiple cell cell_id to idx mapping
-    # break the abstraction layer of vl.VisionCellDataTable for performance purposes...
-    # keep grab all of the spike times for the cells that we care about
-    # and keep a deep copy of that in a Dict
-
-    # spike_idx_offset contains the index of the next spike whose time
-    # we haven't looked at yet. This way we can count spikes while
-    # only making a single pass through the data for each cell
-    multicell_id_to_idx = {}  # type: Dict[int, int]
-    spikes_by_cell_id = {}
-    spike_idx_offset = {}
-    for idx, cell_id_list in enumerate(good_cell_ordering):
-        for cell_id in cell_id_list:
-            multicell_id_to_idx[cell_id] = idx
-
-            spike_times_ptr = vision_dataset.get_spike_times_for_cell(cell_id)
-            spike_times_copy = np.copy(spike_times_ptr)
-
-            spikes_by_cell_id[cell_id] = spike_times_copy
-            spike_idx_offset[cell_id] = 0
-
-    for interval_idx, interval in enumerate(sample_interval_list_increasing):
-
-        for cell_id, map_to_idx in multicell_id_to_idx.items():
-
-            spikes_for_current_cell = spikes_by_cell_id[cell_id]
-
-            # advance the counter dict
-            i = spike_idx_offset[cell_id]
-            while i < len(spikes_for_current_cell) and spikes_for_current_cell[i] < interval[0]:
-                i += 1
-
-            # now we're at the first sample within the interval
-            # count spikes within the interval
-            n_spikes_in_interval = 0
-            while i < len(spikes_for_current_cell) and spikes_for_current_cell[i] < interval[1]:
-                n_spikes_in_interval += 1
-                i += 1
-
-            # and now we're outside the interval, do cleanup
-            spike_idx_offset[cell_id] = i
-
-            output_matrix[interval_idx, map_to_idx] += n_spikes_in_interval
-
-    return output_matrix  # shape (n_intervals, n_cells)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='compute STAs at monitor frequency')
 
-    pass
+    parser.add_argument('ds_path', type=str, help='path to Vision dataset')
+    parser.add_argument('ds_name', type=str, help='name of Vision dataset')
+    parser.add_argument('xml_path', type=str, help='path to stimulus XML file')
+    parser.add_argument('output', type=str, help='path to save location')
+    parser.add_argument('-n', '--n_frames', type=int, help='number of frames', default=51)
+    parser.add_argument('-b', '--batch', type=int, help='number of cells batch size', default=CELL_BATCH_SIZE)
+    parser.add_argument('-v', '--visionwriter', type=bool, default=False, help='save in Vision .sta format')
+
+    args = parser.parse_args()
+
+    device = torch.device('cuda')
+
+    dataset = vl.load_vision_data(args.ds_path, args.ds_name, include_neurons=True)
+    all_cells = dataset.get_cell_ids()
+    spike_times_dict = {cell_id: dataset.get_spike_times_for_cell(cell_id) for cell_id in all_cells}
+    ttl_times = dataset.get_ttl_times()
+
+    avg_ttl_time = np.median(ttl_times[1:] - ttl_times[:-1])
+    monitor_freq = 1.0 / (N_DISPLAY_FRAMES_PER_TTL * (avg_ttl_time / SAMPLE_FREQ))
+
+    framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path)
+
+    print("Calculating STAs")
+    sta_dict = bin_spike_times_by_frames(spike_times_dict,
+                                         ttl_times,
+                                         framegen,
+                                         N_DISPLAY_FRAMES_PER_TTL,
+                                         args.n_frames,
+                                         args.batch,
+                                         device)
+
+    if args.visionwriter:
+
+        sta_container_by_cell_id = {}  # type: Dict[int, vl.STAContainer]
+        for cell_id, sta_matrix in sta_dict.items():
+            depth, width, height, n_channels = sta_matrix.shape
+            no_error = np.zeros_like(sta_matrix[..., 0])
+            sta_container = vl.STAContainer(framegen.stixel_width,
+                                            monitor_freq,
+                                            0,
+                                            sta_matrix[..., 0],
+                                            no_error,
+                                            sta_matrix[..., 1],
+                                            no_error,
+                                            sta_matrix[..., 2],
+                                            no_error)
+            sta_container_by_cell_id[cell_id] = sta_container
+
+        with vw.STAWriter(args.output,
+                          args.ds_name,
+                          framegen.field_width,
+                          framegen.field_height,
+                          args.n_frames,
+                          monitor_freq,
+                          0,
+                          framegen.stixel_width) as staw:
+
+            staw.write_sta_by_cell_id(sta_container_by_cell_id)
+
+    else:
+        with open(args.output, 'wb') as pfile:
+            save_dict = generate_save_dict(sta_dict, monitor_freq)
+            pickle.dump(save_dict, pfile)

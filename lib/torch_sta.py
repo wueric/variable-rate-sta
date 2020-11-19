@@ -340,3 +340,73 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
         sta_dict[cell_id] = sta_buffer_np[idx, ...] / spikes_by_cell_id[cell_id].shape[0]
 
     return sta_dict
+
+
+def bin_spike_times_by_frames (spikes_by_cell_id : Dict[int, np.ndarray],
+                               ttl_times : np.ndarray,
+                               frame_generator : RandomNoiseFrameGenerator,
+                               frames_per_ttl : int,
+                               n_bins_depth : int,
+                               cell_batch_size : int,
+                               device : torch.device) -> Dict[int, np.ndarray]:
+    '''
+
+        :param spikes_by_cell_id:
+        :param ttl_times:
+        :param frame_generator:
+        :param frames_per_ttl:
+        :param bin_interval_samples: number of samples per bin
+        :param n_bins_depth:
+        :return:
+        '''
+
+    # initialize empty STAs
+    width, height = frame_generator.field_width, frame_generator.field_height
+    cell_order = list(spikes_by_cell_id.keys())
+    n_cells = len(cell_order)
+
+    spikes_idx_offset = {cell_id: 0 for cell_id in spikes_by_cell_id.keys()}
+
+    # outer loop is time
+    # note that STAs are only about 25-50 frames worth
+    # so we only need to keep two batches of frames around
+    sta_buffer = torch.zeros((n_cells, n_bins_depth, height, width, 3), dtype=torch.float32, device=device)
+
+    n_frame_blocks = ttl_times.shape[0] - 1
+    n_distinct_frames = frames_per_ttl // frame_generator.refresh_interval
+
+    with tqdm.tqdm(total=n_frame_blocks) as pbar:
+
+        for i in range(0, ttl_times.shape[0] - 1):
+            ttl_a, ttl_b = ttl_times[i], ttl_times[i + 1]
+
+            frame_batch = frame_generator.generate_block_of_frames(
+                n_distinct_frames)  # shape (frames_per_ttl, width, height, 3)
+
+            frame_batch_torch = (torch.tensor(frame_batch, dtype=torch.float32, device=device) - 127.5) / 255.0
+            ttl_bins = np.linspace(ttl_a, ttl_b, n_distinct_frames + 1)
+
+            display_frame_interval = (ttl_b - ttl_a) / frames_per_ttl
+
+            weights_matrix, spikes_idx_offset = torch_batch_parallel_pack_sta_bin_select_matrix(
+                spikes_by_cell_id,
+                spikes_idx_offset,
+                cell_order,
+                n_bins_depth,
+                display_frame_interval,
+                ttl_bins,
+                cell_batch_size,
+                device
+            )
+
+            sta_buffer += torch.einsum('cdf,fwht->cdwht', weights_matrix, frame_batch_torch)
+
+            pbar.update(1)
+
+    sta_buffer_np = sta_buffer.cpu().numpy()
+
+    sta_dict = {}  # type: Dict[int, np.ndarray]
+    for idx, cell_id in enumerate(cell_order):
+        sta_dict[cell_id] = sta_buffer_np[idx, ...] / spikes_by_cell_id[cell_id].shape[0]
+
+    return sta_dict
