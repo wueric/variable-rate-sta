@@ -15,6 +15,8 @@ from typing import Dict, Tuple, Union, Sequence
 
 import torch
 
+CELL_BATCH_SIZE = 64
+
 
 def torch_single_spike_bin_select_matrix_piece(spike_time_vector: np.ndarray,
                                                n_bins_depth: int,
@@ -168,19 +170,18 @@ def torch_parallel_spike_bin_select_matrix_piece(spike_time_matrix: np.ndarray,
     bin_backwards_times_torch = torch.tensor(bin_backwards_times, dtype=torch.float32, device=device)
 
     # shape (n_cells, n_spikes, n_sta_bins + 1)
-    spike_bin_times = spike_time_matrix_torch[:, :, None] + bin_backwards_times_torch[:, None, :]
+    spike_bin_times = spike_time_matrix_torch[:, :, None] + bin_backwards_times_torch[None, None, :]
 
     # shape (n_cells, n_spikes, n_frames, n_sta_bins)
-    distance_to_frame_bin_end = frame_cutoff_times_torch[None, None, None, 1:] - spike_bin_times[:, :, :-1, None]
-    distance_to_frame_bin_begin = spike_bin_times[:, :, 1:, None] - frame_cutoff_times_torch[None, None, None, :-1]
+    distance_to_frame_bin_end = (frame_cutoff_times_torch[None, None, None, 1:] - spike_bin_times[:, :, :-1, None]) > 0.0
+    distance_to_frame_bin_begin = (spike_bin_times[:, :, 1:, None] - frame_cutoff_times_torch[None, None, None, :-1]) > 0.0
 
     # shape (n_cells, n_spikes, n_frames, n_sta_bins)
-    does_overlap = torch.logical_and(distance_to_frame_bin_end > 0.0, distance_to_frame_bin_begin > 0.0)
+    does_overlap = torch.logical_and(distance_to_frame_bin_end, distance_to_frame_bin_begin)
 
     # shape (n_cells, n_spikes, n_sta_bins, n_frames)
     upper_endpoint_maximum = torch.max(frame_cutoff_times_torch[None, None, None, 1:], spike_bin_times[:, :, 1:, None])
-    lower_endpoint_minimum = torch.min(frame_cutoff_times_torch[None, None, None, :-1],
-                                       spike_bin_times[:, :, :-1, None])
+    lower_endpoint_minimum = torch.min(frame_cutoff_times_torch[None, None, None, :-1], spike_bin_times[:, :, :-1, None])
 
     # shape (n_cells, n_spikes, n_sta_bins, n_frames)
     intersection_area = sum_area_torch[None, None, None, :] - (upper_endpoint_maximum - lower_endpoint_minimum)
@@ -254,13 +255,16 @@ def torch_batch_parallel_pack_sta_bin_select_matrix(
         relevant_spikes = relevant_spikes_dict[cell_id]
         spike_times_matrix_padded[batch_idx, :relevant_spikes.shape[0]] = relevant_spikes
 
-    bin_select_matrix = torch_parallel_spike_bin_select_matrix_piece(
-        spike_times_matrix_padded,
-        n_bins_depth,
-        bin_interval_samples,
-        frame_cutoff_times,
-        device
-    )
+    bin_select_matrix = torch.zeros((n_cells, n_bins_depth, n_frames), dtype=torch.float32, device=device)
+    for ii in range(0, n_cells, CELL_BATCH_SIZE):
+        max_ii = min(n_cells, ii + CELL_BATCH_SIZE)
+        bin_select_matrix[ii:max_ii,...] = torch_parallel_spike_bin_select_matrix_piece(
+                spike_times_matrix_padded[ii:max_ii, ...],
+            n_bins_depth,
+            bin_interval_samples,
+            frame_cutoff_times,
+            device
+        )
 
     return bin_select_matrix, cell_idx_offset_post
 
