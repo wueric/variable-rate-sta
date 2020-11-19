@@ -29,17 +29,25 @@ def torch_single_spike_bin_select_matrix_piece(spike_time_vector: np.ndarray,
     :param frame_cutoff_times: cutoff times of each frame, including endpoints. units of electrical samples
     :return: matrix of weights corresponding, shape (n_frames, n_bins_depth)
     '''
-    frame_interval_length = frame_cutoff_times[1] - frame_cutoff_times[0]
-    sum_area = frame_interval_length + bin_interval_samples
+
+    sum_area = (frame_cutoff_times[1:] - frame_cutoff_times[:-1]) + bin_interval_samples
+
+    # shape (n_frames, )
+    sum_area_torch = torch.tensor(sum_area, dtype=torch.float32, device=device)
 
     bin_backwards_times = -np.r_[n_bins_depth:-1:-1] * bin_interval_samples
 
+    # shape (n_frames + 1, )
     frame_cutoff_times_torch = torch.tensor(frame_cutoff_times, dtype=torch.float32, device=device)
+
+    # shape (n_spikes, )
     spike_time_vector_torch = torch.tensor(spike_time_vector, dtype=torch.float32, device=device)
+
+    # shape (n_bins_depth + 1, )
     bin_backwards_times_torch = torch.tensor(bin_backwards_times, dtype=torch.float32, device=device)
 
-    spike_bin_times = spike_time_vector_torch[:, None] - bin_backwards_times_torch[None, :]
     # shape (n_spikes, n_sta_bins + 1)
+    spike_bin_times = spike_time_vector_torch[:, None] + bin_backwards_times_torch[None, :]
 
     # shape (n_spikes, n_frames, n_sta_bins)
     distance_to_frame_bin_end = frame_cutoff_times_torch[None, None, 1:] - spike_bin_times[:, :-1, None]
@@ -53,7 +61,7 @@ def torch_single_spike_bin_select_matrix_piece(spike_time_vector: np.ndarray,
     lower_endpoint_minimum = torch.min(frame_cutoff_times_torch[None, None, :-1], spike_bin_times[:, :-1, None])
 
     # shape (n_spikes, n_sta_bins, n_frames)
-    intersection_area = sum_area - (upper_endpoint_maximum - lower_endpoint_minimum)
+    intersection_area = sum_area_torch[None, None, :] - (upper_endpoint_maximum - lower_endpoint_minimum)
     intersection_area[torch.logical_not(does_overlap)] = 0.0
 
     # shape (n_sta_bins, n_frames)
@@ -218,7 +226,7 @@ if __name__ == '__main__':
                                          ttl_times,
                                          framegen,
                                          100,
-                                         160,
+                                         150,
                                          61,
                                          device)
     with open('/Volumes/Lab/Users/ericwu/debug/sta_dict.p', 'wb') as pfile:
