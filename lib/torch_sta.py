@@ -302,7 +302,7 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
     # outer loop is time
     # note that STAs are only about 25-50 frames worth
     # so we only need to keep two batches of frames around
-    sta_buffer = torch.zeros((n_cells, n_bins_depth, width, height, 3), dtype=torch.float32, device=device)
+    sta_buffer = torch.zeros((n_cells, n_bins_depth, height, width, 3), dtype=torch.float32, device=device)
 
     n_frame_blocks = ttl_times.shape[0] - 1
     n_distinct_frames = frames_per_ttl // frame_generator.refresh_interval
