@@ -37,20 +37,28 @@ def torch_single_spike_bin_select_matrix_piece(spike_time_vector: np.ndarray,
     spike_time_vector_torch = torch.tensor(spike_time_vector, dtype=torch.float32, device=device)
     bin_backwards_times_torch = torch.tensor(bin_backwards_times, dtype=torch.float32, device=device)
 
-    spike_bin_times = spike_time_vector_torch[:,None] - bin_backwards_times_torch[None,:] # shape (n_spikes, n_sta_bins)
+    spike_bin_times = spike_time_vector_torch[:,None] - bin_backwards_times_torch[None,:]
+    # shape (n_spikes, n_sta_bins + 1)
 
+    # shape (n_spikes, n_frames, n_sta_bins)
+    distance_to_frame_bin_end = frame_cutoff_times[None, None, 1:] - spike_bin_times[:, :-1, None]
+    distance_to_frame_bin_begin = spike_bin_times[:, 1:, None] - frame_cutoff_times[None, None, :-1]
 
-    distance_to_frame_bin_end = frame_cutoff_times_torch[None, 1:, None] - spike_bin_times[:, None, :-1]
-    distance_to_frame_bin_begin = spike_bin_times[:, None, 1:] - frame_cutoff_times_torch[None, :-1, None]
-
+    # shape (n_spikes, n_frames, n_sta_bins)
     does_overlap = torch.logical_and(distance_to_frame_bin_end > 0.0, distance_to_frame_bin_begin > 0.0)
+
+    # shape (n_spikes, n_sta_bins, n_frames)
     upper_endpoint_maximum = torch.max(frame_cutoff_times_torch[None, 1:, None], spike_bin_times[:, None, 1:])
     lower_endpoint_minimum = torch.min(frame_cutoff_times_torch[None, :-1, None], spike_bin_times[:, None, :-1])
 
+    # shape (n_spikes, n_sta_bins, n_frames)
     intersection_area = sum_area - (upper_endpoint_maximum - lower_endpoint_minimum)
-    intersection_area[torch.logical_not(does_overlap)] = 0.0
 
-    return torch.sum(intersection_area, dim=0)
+    weight_matrix = torch.zeros_like(intersection_area, dtype=torch.float32, device=device)
+    weight_matrix[does_overlap] = intersection_area[weight_matrix]
+
+    # shape (n_sta_bins, n_frames)
+    return torch.sum(weight_matrix, dim=0)
 
 
 def torch_pack_sta_bin_select_matrix(spikes_by_cell_id: Dict[int, np.ndarray],
@@ -97,8 +105,8 @@ def torch_pack_sta_bin_select_matrix(spikes_by_cell_id: Dict[int, np.ndarray],
         look_at_start = last_looked_at
         while last_looked_at < spike_times_vector.shape[0] and \
                 spike_times_vector[last_looked_at] < last_relevant_spike_sample:
-
             last_looked_at += 1
+
         if (last_looked_at - look_at_start) > 0:
             spike_time_subvector = spike_times_vector[look_at_start:last_looked_at]
 
@@ -173,9 +181,6 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
                                                                            ttl_bins,
                                                                            device)
             sta_buffer += torch.einsum('cdf,fwht->cdwht', weights_matrix, frame_batch_torch)
-
-            if i > 200:
-                break
 
             pbar.update(1)
 
