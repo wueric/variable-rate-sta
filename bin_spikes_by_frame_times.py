@@ -36,6 +36,7 @@ if __name__ == '__main__':
     device = torch.device('cuda')
     torch.set_num_threads(8)
 
+    print("Loading spike times...")
     dataset = vl.load_vision_data(args.ds_path, args.ds_name, include_neurons=True)
     all_cells = dataset.get_cell_ids()
     spike_times_dict = {cell_id: dataset.get_spike_times_for_cell(cell_id) for cell_id in all_cells}

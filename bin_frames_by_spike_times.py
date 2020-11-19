@@ -38,6 +38,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     device = torch.device('cuda')
+    torch.set_num_threads(8)
 
     print("Loading spike times...")
 
