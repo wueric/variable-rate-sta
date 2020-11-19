@@ -41,11 +41,11 @@ def torch_single_spike_bin_select_matrix_piece(spike_time_vector: np.ndarray,
     spike_bin_times = spike_time_vector_torch[:, None] + bin_backwards_times_torch[None, :]
 
     # shape (n_spikes, n_frames, n_sta_bins)
-    distance_to_frame_bin_end = frame_cutoff_times_torch[None, None, 1:] - spike_bin_times[:, :-1, None]
-    distance_to_frame_bin_begin = spike_bin_times[:, 1:, None] - frame_cutoff_times_torch[None, None, :-1]
+    distance_to_frame_bin_end = (frame_cutoff_times_torch[None, None, 1:] - spike_bin_times[:, :-1, None]) > 0.0
+    distance_to_frame_bin_begin = (spike_bin_times[:, 1:, None] - frame_cutoff_times_torch[None, None, :-1]) > 0.0
 
     # shape (n_spikes, n_frames, n_sta_bins)
-    does_overlap = torch.logical_and(distance_to_frame_bin_end > 0.0, distance_to_frame_bin_begin > 0.0)
+    does_overlap = (distance_to_frame_bin_end & distance_to_frame_bin_begin)
 
     # shape (n_spikes, n_sta_bins, n_frames)
     upper_endpoint_maximum = torch.max(frame_cutoff_times_torch[None, None, 1:], spike_bin_times[:, 1:, None])
@@ -168,7 +168,7 @@ def torch_parallel_spike_bin_select_matrix_piece(spike_time_vector: np.ndarray,
     distance_to_frame_bin_begin = (spike_bin_times[:, 1:, None] - frame_cutoff_times_torch[None, None, :-1]) > 0.0
 
     # shape (n_all_spikes, n_frames, n_sta_bins)
-    does_overlap = torch.logical_and(distance_to_frame_bin_end, distance_to_frame_bin_begin)
+    does_overlap = distance_to_frame_bin_end & distance_to_frame_bin_begin
 
     # shape (n_all_spikes, n_sta_bins, n_frames)
     upper_endpoint_maximum = torch.max(frame_cutoff_times_torch[None, None, 1:], spike_bin_times[:, 1:, None])
