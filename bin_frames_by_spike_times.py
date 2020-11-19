@@ -137,6 +137,134 @@ def torch_pack_sta_bin_select_matrix(spikes_by_cell_id: Dict[int, np.ndarray],
     return bin_select_matrix, cell_idx_offset_post
 
 
+def torch_parallel_spike_bin_select_matrix_piece(spike_time_matrix: np.ndarray,
+                                                 n_bins_depth: int,
+                                                 bin_interval_samples: Union[float, int],
+                                                 frame_cutoff_times: np.ndarray,
+                                                 device: torch.device) -> torch.Tensor:
+    '''
+
+    :param spike_time: time of spike, in units of electrical samples, shape (n_cells, padded n_spikes)
+    :param n_bins_depth: number of bins in the STA
+    :param bin_interval_samples: size of bin, in units of electrical samples
+    :param frame_cutoff_times: cutoff times of each frame, including endpoints. units of electrical samples
+    :return: matrix of weights corresponding, shape (n_frames, n_bins_depth)
+    '''
+
+    sum_area = (frame_cutoff_times[1:] - frame_cutoff_times[:-1]) + bin_interval_samples
+
+    # shape (n_frames, )
+    sum_area_torch = torch.tensor(sum_area, dtype=torch.float32, device=device)
+
+    bin_backwards_times = -np.r_[n_bins_depth:-1:-1] * bin_interval_samples
+
+    # shape (n_frames + 1, )
+    frame_cutoff_times_torch = torch.tensor(frame_cutoff_times, dtype=torch.float32, device=device)
+
+    # shape (n_cells, padded_n_spikes)
+    spike_time_matrix_torch = torch.tensor(spike_time_matrix, dtype=torch.float32, device=device)
+
+    # shape (n_bins_depth + 1, )
+    bin_backwards_times_torch = torch.tensor(bin_backwards_times, dtype=torch.float32, device=device)
+
+    # shape (n_cells, n_spikes, n_sta_bins + 1)
+    spike_bin_times = spike_time_matrix_torch[:, :, None] + bin_backwards_times_torch[:, None, :]
+
+    # shape (n_cells, n_spikes, n_frames, n_sta_bins)
+    distance_to_frame_bin_end = frame_cutoff_times_torch[None, None, None, 1:] - spike_bin_times[:, :, :-1, None]
+    distance_to_frame_bin_begin = spike_bin_times[:, :, 1:, None] - frame_cutoff_times_torch[None, None, None, :-1]
+
+    # shape (n_cells, n_spikes, n_frames, n_sta_bins)
+    does_overlap = torch.logical_and(distance_to_frame_bin_end > 0.0, distance_to_frame_bin_begin > 0.0)
+
+    # shape (n_cells, n_spikes, n_sta_bins, n_frames)
+    upper_endpoint_maximum = torch.max(frame_cutoff_times_torch[None, None, None, 1:], spike_bin_times[:, :, 1:, None])
+    lower_endpoint_minimum = torch.min(frame_cutoff_times_torch[None, None, None, :-1],
+                                       spike_bin_times[:, :, :-1, None])
+
+    # shape (n_cells, n_spikes, n_sta_bins, n_frames)
+    intersection_area = sum_area_torch[None, None, None, :] - (upper_endpoint_maximum - lower_endpoint_minimum)
+    intersection_area[torch.logical_not(does_overlap)] = 0.0
+
+    # shape (n_sta_bins, n_frames)
+    return torch.sum(intersection_area, dim=1)
+
+
+def torch_batch_parallel_pack_sta_bin_select_matrix(
+        spikes_by_cell_id: Dict[int, np.ndarray],
+        cell_idx_offset: Dict[int, int],
+        cell_order: Sequence[int],
+        n_bins_depth: int,
+        bin_interval_samples: Union[int, float],
+        frame_cutoff_times: np.ndarray,
+        device: torch.device) \
+        -> Tuple[torch.Tensor, Dict[int, int]]:
+    '''
+
+    :param spikes_by_cell_id: Dict, (cell_id) -> (spike time vector)
+    :param cell_idx_offset: Dict, (cell_id) -> (first not-yet-looked-at index in the spike time vector)
+    :param cell_order: sequence of cell_id, corresponding to the order of cells for batched matrix multiply
+    :param n_bins_depth: depth of STA, in bins
+    :param bin_interval_samples: width of bins, units are recorded electrical samples
+    :param frame_cutoff_times: cutoff times for the STA frames, including both endpoints. units are recorded
+        electrical samples
+    :return:
+    '''
+
+    n_cells = len(cell_order)
+    n_frames = frame_cutoff_times.shape[0] - 1
+
+    sta_length_in_electrical_samples = np.ceil(n_bins_depth * bin_interval_samples)  # not sure what the correct
+    # way to go to integer here is
+
+    earliest_relevant_spike_sample = frame_cutoff_times[0] - sta_length_in_electrical_samples
+    last_relevant_spike_sample = sta_length_in_electrical_samples + frame_cutoff_times[-1]
+
+    cell_idx_offset_post = {}  # type: Dict[int, int]
+    relevant_spikes_dict = {}  # type: Dict[int, np.ndarray]
+    max_n_relevant_spikes = 0
+    for batch_idx, cell_id in enumerate(cell_order):
+
+        spike_times_vector = spikes_by_cell_id[cell_id]
+        last_looked_at = cell_idx_offset[cell_id]
+
+        while last_looked_at < spike_times_vector.shape[0] and \
+                spike_times_vector[last_looked_at] < earliest_relevant_spike_sample:
+            last_looked_at += 1
+
+        # now we are either in relevant spike territory, or we have no spikes for this bin
+        relevant_spikes = []
+        while last_looked_at < spike_times_vector.shape[0] and \
+                spike_times_vector[last_looked_at] < last_relevant_spike_sample:
+            relevant_spikes.append(spike_times_vector[last_looked_at])
+            last_looked_at += 1
+
+        relevant_spikes_dict[cell_id] = np.array(relevant_spikes, dtype=np.float32)
+        max_n_relevant_spikes = max(max_n_relevant_spikes, relevant_spikes_dict[cell_id].shape[0])
+
+        to_include = cell_idx_offset[cell_id]
+        while to_include < spike_times_vector.shape[0] and \
+                spike_times_vector[to_include] < frame_cutoff_times[-1]:
+            to_include += 1
+
+        cell_idx_offset_post[cell_id] = to_include
+
+    spike_times_matrix_padded = -np.ones((n_cells, max_n_relevant_spikes), dtype=np.float32)
+    for batch_idx, cell_id in enumerate(cell_order):
+        relevant_spikes = relevant_spikes_dict[cell_id]
+        spike_times_matrix_padded[batch_idx, :relevant_spikes.shape[0]] = relevant_spikes
+
+    bin_select_matrix = torch_parallel_spike_bin_select_matrix_piece(
+        spike_times_matrix_padded,
+        n_bins_depth,
+        bin_interval_samples,
+        frame_cutoff_times,
+        device
+    )
+
+    return bin_select_matrix, cell_idx_offset_post
+
+
 def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
                               ttl_times: np.ndarray,
                               frame_generator: RandomNoiseFrameGenerator,
@@ -181,6 +309,7 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
             frame_batch_torch = (torch.tensor(frame_batch, dtype=torch.float32, device=device) - 127.5) / 255.0
             ttl_bins = np.linspace(ttl_a, ttl_b, n_distinct_frames + 1)
 
+            '''
             weights_matrix, spikes_idx_offset = torch_pack_sta_bin_select_matrix(spikes_by_cell_id,
                                                                                  spikes_idx_offset,
                                                                                  cell_order,
@@ -188,6 +317,17 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
                                                                                  bin_interval_samples,
                                                                                  ttl_bins,
                                                                                  device)
+                                                                                 '''
+            weights_matrix, spikes_idx_offset = torch_batch_parallel_pack_sta_bin_select_matrix(
+                spikes_by_cell_id,
+                spikes_idx_offset,
+                cell_order,
+                n_bins_depth,
+                bin_interval_samples,
+                ttl_bins,
+                device
+            )
+
             sta_buffer += torch.einsum('cdf,fwht->cdwht', weights_matrix, frame_batch_torch)
 
             pbar.update(1)
