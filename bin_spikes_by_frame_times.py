@@ -34,6 +34,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     device = torch.device('cuda')
+    torch.set_num_threads(8)
 
     dataset = vl.load_vision_data(args.ds_path, args.ds_name, include_neurons=True)
     all_cells = dataset.get_cell_ids()
