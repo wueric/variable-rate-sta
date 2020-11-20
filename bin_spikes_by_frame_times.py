@@ -7,6 +7,7 @@ import torch
 import visionloader as vl
 import visionwriter as vw
 from whitenoise import RandomNoiseFrameGenerator
+import electrode_map as el_map
 
 import pickle
 
@@ -58,6 +59,8 @@ if __name__ == '__main__':
 
     if args.visionwriter:
 
+        print("Saving output to Vision format")
+
         sta_container_by_cell_id = {}  # type: Dict[int, vl.STAContainer]
         for cell_id, sta_matrix in sta_dict.items():
             depth, width, height, n_channels = sta_matrix.shape
@@ -73,6 +76,7 @@ if __name__ == '__main__':
                                             no_error)
             sta_container_by_cell_id[cell_id] = sta_container
 
+        print("Writing .sta file")
         with vw.STAWriter(args.output,
                           args.ds_name,
                           framegen.field_width,
@@ -83,6 +87,54 @@ if __name__ == '__main__':
                           framegen.stixel_width) as staw:
 
             staw.write_sta_by_cell_id(sta_container_by_cell_id)
+
+        print("Rewriting .globals file")
+        with vl.GlobalsFileReader(args.output, args.ds_name) as gfr:
+            vision_header = gfr.get_rdh512_header() # type: vl.PyBinHeader
+            if el_map.is_reconfigurable_board(vision_header.array_id):
+                electrode_coordinates, _ = gfr.get_electrode_map()
+            else:
+                electrode_coordinates = None
+
+        rtmp = vl.RunTimeMovieParamsReader(framegen.stixel_width,
+                                           framegen.stixel_height,
+                                           framegen.field_width,
+                                           framegen.field_height,
+                                           1.0,
+                                           1.0,
+                                           0.0,
+                                           0.0,
+                                           framegen.refresh_interval,
+                                           monitor_freq,
+                                           N_DISPLAY_FRAMES_PER_TTL,
+                                           framegen.refresh_interval / monitor_freq,
+                                           (ttl_times.shape[0] - 1) * N_DISPLAY_FRAMES_PER_TTL,
+                                           [])
+
+        with vw.GlobalsFileWriter(args.output, args.ds_name) as gfw:
+            if el_map.is_reconfigurable_board(vision_header.array_id):
+                gfw.write_simplified_reconfigurable_array_globals_file(vision_header.time_base,
+                                                                       vision_header.seconds_time,
+                                                                       vision_header.comment,
+                                                                       vision_header.dataset_identifier,
+                                                                       vision_header.format,
+                                                                       vision_header.frequency,
+                                                                       vision_header.n_samples,
+                                                                       electrode_coordinates,
+                                                                       17.5)
+                gfw.write_run_time_movie_params(rtmp)
+
+            else:
+                gfw.write_simplified_litke_array_globals_file(vision_header.array_id,
+                                                              vision_header.time_base,
+                                                              vision_header.seconds_time,
+                                                              vision_header.comment,
+                                                              vision_header.dataset_identifier,
+                                                              vision_header.format,
+                                                              vision_header.n_samples)
+                gfw.write_run_time_movie_params(rtmp)
+
+
 
     else:
         with open(args.output, 'wb') as pfile:
