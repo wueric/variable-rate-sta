@@ -16,10 +16,15 @@ whether a cell spiked at the beginning, in the middle, or at the end of a frame 
 the timecourse).
 
 Note that even if we set the resampling frequency at some integer multiple of the monitor refresh rate, the resampled bin
-intervals will eventually go out-of-sync with the monitor refresh intervals, because of temporal jitter in the frame rate.
+intervals will eventually go out-of-sync with the monitor refresh intervals, because of temporal jitter in the frame rate
+from the monitor.
 
 Approximate runtime: about 4-8 minutes for 30 minute white noise stimulus. Stixel size doesn't appear to strongly affect
 the runtime.
+
+Saves a pickle file, contains a Dict with RGB STAs for every cell in the dataset
+
+Requires numpy, pytorch >= 1.4, usual Python infrastructure stuff. Runs on GPU.
 
 #### Synopsis
 
