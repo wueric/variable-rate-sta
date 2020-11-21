@@ -36,8 +36,21 @@ python bin_frames_by_spike_times.py <analysis-path> <ds-name> <path-to-stimulus-
 * **-n**, **--n-frames**, STA depth, default value 51
 * **-b**, **--batch**, number of cells per batch. Default 512. Larger runs faster, too large and GPU runs out of space
 
-#### Example
+#### Example command
 
 ```shell script
 CUDA_VISIBLE_DEVICES=3, python bin_frames_by_spike_times.py /Volumes/Lab/Users/ericwu/yass-reconstruction/2017-12-04-5/data001 data001 /Volumes/Analysis/stimuli/white-noise-xml/RGB-10-4-0.48-11111.xml /Volumes/Scratch/Users/wueric/debug/2017_12_04_5_data001_example -r 240 -n 51
 ```
+
+#### Example results
+
+Example timecourses. Same cell for both. ON midget, RGB-10-4 stimulus at 120 Hz
+
+Note that the X-axes are different, and the labels are in samples, so they can't
+quite be compared one-to-one!
+
+The Vision timecourse:
+![Vision timecourse](example_images/original.png "Vision")
+
+The supersampled timecourse (supersampled at 240 Hz):
+![Supersampled timecourse](example_images/supersample.png "Supersample")
