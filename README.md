@@ -50,7 +50,9 @@ Note that the X-axes are different, and the labels are in samples, so they can't
 quite be compared one-to-one!
 
 The Vision timecourse:
+
 ![Vision timecourse](example_images/original.png "Vision")
 
 The supersampled timecourse (supersampled at 240 Hz):
+
 ![Supersampled timecourse](example_images/supersample.png "Supersample")
