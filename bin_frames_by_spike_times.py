@@ -6,8 +6,12 @@ import torch
 import visionloader as vl
 from whitenoise import RandomNoiseFrameGenerator
 
+from typing import List
+
 import pickle
 import argparse
+
+import numpy as np
 
 CELL_BATCH_SIZE = 512
 N_DISPLAY_FRAMES_PER_TTL = 100
@@ -25,6 +29,10 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n_frames', type=int, help='STA depth', default=51)
     parser.add_argument('-b', '--batch', type=int, help='number of cells batch size', default=CELL_BATCH_SIZE)
     parser.add_argument('-j', '--jitter', action='store_true', default=False, help='Use jittered stimulus')
+    parser.add_argument('-l', '--list', type=str, default=None,
+                        help='text file of cell ids to compute for (useful for super-large stimulus)')
+    parser.add_argument('-s', '--superbatch', type=int, default=-1,
+                        help='Superbatch size (use if STA accumulator too big for GPU memory)')
 
     args = parser.parse_args()
 
@@ -33,23 +41,51 @@ if __name__ == '__main__':
 
     print("Loading spike times...")
     dataset = vl.load_vision_data(args.ds_path, args.ds_name, include_neurons=True)
-    all_cells = dataset.get_cell_ids()
+    if args.list is None:
+        all_cells = dataset.get_cell_ids()  # type: List[int]
+    else:
+        with open(args.list, 'r') as cell_id_list_file:
+            all_cells = list(
+                map(lambda x: int(x), cell_id_list_file.readline().strip('\n').split(',')))  # type: List[int]
+
     spike_times_dict = {cell_id: dataset.get_spike_times_for_cell(cell_id) for cell_id in all_cells}
     ttl_times = dataset.get_ttl_times()
 
-    framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
-
     n_samples_per_bin = SAMPLE_FREQ / args.frame_rate
 
-    print("Calculating STAs")
-    sta_dict = bin_frames_by_spike_times(spike_times_dict,
-                                         ttl_times,
-                                         framegen,
-                                         N_DISPLAY_FRAMES_PER_TTL,
-                                         n_samples_per_bin,
-                                         args.n_frames,
-                                         args.batch,
-                                         device)
+    if args.superbatch == -1:
+        print("Calculating STAs")
+        framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
+        sta_dict = bin_frames_by_spike_times(spike_times_dict,
+                                             ttl_times,
+                                             framegen,
+                                             N_DISPLAY_FRAMES_PER_TTL,
+                                             n_samples_per_bin,
+                                             args.n_frames,
+                                             args.batch,
+                                             device)
+    else:
+        print("Calculating STAs batched by cell")
+        sta_dict = {}
+
+        n_batches = np.ceil(len(all_cells) / args.superbatch)
+        for i in range(0, len(all_cells), args.superbatch):
+            print("Batch {0}/{1}".format(i, n_batches))
+            framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
+            relevant_cell_ids = all_cells[i:min(len(all_cells), i+args.superbatch)]
+            relevant_spike_times = {cell_id : spike_times_dict[cell_id] for cell_id in relevant_cell_ids}
+
+            partial_sta_dict = bin_frames_by_spike_times(relevant_spike_times,
+                                                         ttl_times,
+                                                         framegen,
+                                                         N_DISPLAY_FRAMES_PER_TTL,
+                                                         n_samples_per_bin,
+                                                         args.n_frames,
+                                                         args.batch,
+                                                         device)
+
+            for cell_id, sta_mat in partial_sta_dict.items():
+                sta_dict[cell_id] = sta_mat
 
     print("Writing STAs")
     with open(args.output, 'wb') as pfile:
