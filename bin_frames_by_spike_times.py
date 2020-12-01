@@ -24,6 +24,7 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--frame_rate', type=float, help='effective frame rate [Hz]', default=120.0)
     parser.add_argument('-n', '--n_frames', type=int, help='STA depth', default=51)
     parser.add_argument('-b', '--batch', type=int, help='number of cells batch size', default=CELL_BATCH_SIZE)
+    parser.add_argument('-j', '--jitter', action='store_true', default=False, help='Use jittered stimulus')
 
     args = parser.parse_args()
 
@@ -36,7 +37,7 @@ if __name__ == '__main__':
     spike_times_dict = {cell_id: dataset.get_spike_times_for_cell(cell_id) for cell_id in all_cells}
     ttl_times = dataset.get_ttl_times()
 
-    framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path)
+    framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
 
     n_samples_per_bin = SAMPLE_FREQ / args.frame_rate
 

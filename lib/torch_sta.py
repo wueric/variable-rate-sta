@@ -293,7 +293,8 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
     '''
 
     # initialize empty STAs
-    width, height = frame_generator.field_width, frame_generator.field_height
+    height, width = frame_generator.output_dims
+    #width, height = frame_generator.field_width, frame_generator.field_height
     cell_order = list(spikes_by_cell_id.keys())
     n_cells = len(cell_order)
 
@@ -361,7 +362,8 @@ def bin_spike_times_by_frames (spikes_by_cell_id : Dict[int, np.ndarray],
         '''
 
     # initialize empty STAs
-    width, height = frame_generator.field_width, frame_generator.field_height
+    height, width = frame_generator.output_dims
+    #width, height = frame_generator.field_width, frame_generator.field_height
     cell_order = list(spikes_by_cell_id.keys())
     n_cells = len(cell_order)
 

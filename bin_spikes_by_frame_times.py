@@ -31,6 +31,8 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n_frames', type=int, help='number of frames', default=51)
     parser.add_argument('-b', '--batch', type=int, help='number of cells batch size', default=CELL_BATCH_SIZE)
     parser.add_argument('-v', '--visionwriter', type=bool, default=False, help='save in Vision .sta format')
+    parser.add_argument('-j', '--jitter', action='store_true', default=False, help='Use jittered stimulus')
+
 
     args = parser.parse_args()
 
@@ -46,7 +48,7 @@ if __name__ == '__main__':
     avg_ttl_time = np.median(ttl_times[1:] - ttl_times[:-1])
     monitor_freq = 1.0 / (N_DISPLAY_FRAMES_PER_TTL * (avg_ttl_time / SAMPLE_FREQ))
 
-    framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path)
+    framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
 
     print("Calculating STAs")
     sta_dict = bin_spike_times_by_frames(spike_times_dict,
