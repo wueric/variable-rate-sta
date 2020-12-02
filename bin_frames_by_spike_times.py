@@ -13,6 +13,8 @@ import argparse
 
 import numpy as np
 
+import h5py
+
 CELL_BATCH_SIZE = 512
 N_DISPLAY_FRAMES_PER_TTL = 100
 SAMPLE_FREQ = 20000
@@ -68,9 +70,9 @@ if __name__ == '__main__':
         print("Calculating STAs batched by cell")
         sta_dict = {}
 
-        n_batches = np.ceil(len(all_cells) / args.superbatch)
-        for i in range(0, len(all_cells), args.superbatch):
-            print("Batch {0}/{1}".format(i, n_batches))
+        n_batches = int(np.ceil(len(all_cells) / args.superbatch))
+        for batch_idx, i in enumerate(range(0, len(all_cells), args.superbatch)):
+            print("Batch {0}/{1}".format(batch_idx+1, n_batches))
             framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
             relevant_cell_ids = all_cells[i:min(len(all_cells), i+args.superbatch)]
             relevant_spike_times = {cell_id : spike_times_dict[cell_id] for cell_id in relevant_cell_ids}
@@ -88,6 +90,6 @@ if __name__ == '__main__':
                 sta_dict[cell_id] = sta_mat
 
     print("Writing STAs")
-    with open(args.output, 'wb') as pfile:
-        save_dict = generate_save_dict(sta_dict, args.frame_rate)
-        pickle.dump(save_dict, pfile)
+    with h5py.File(args.output, 'w') as h5_file:
+        for cell_id, sta_mat in sta_dict.items():
+            h5_file.create_dataset(str(cell_id), data=sta_mat)
