@@ -85,7 +85,7 @@ if __name__ == '__main__':
     with open(args.output_path, 'wb') as pfile:
 
         output_dict = {
-            'timecourse' : timecourse_average,
+            'timecourse' : timecourse_average.T,
             'contours_by_cell_id' : contour_by_cell_id,
             'centers_by_cell_id' : centers_by_cell_id
         }
