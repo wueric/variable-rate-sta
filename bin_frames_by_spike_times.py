@@ -35,7 +35,10 @@ if __name__ == '__main__':
                         help='text file of cell ids to compute for (useful for super-large stimulus)')
     parser.add_argument('-s', '--superbatch', type=int, default=-1,
                         help='Superbatch size (use if STA accumulator too big for GPU memory)')
-    parser.add_argument('-o', '--manual_trigger_offset', type=int, default=0, help='Stimulus trigger to start at. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
+    parser.add_argument('-o', '--manual_trigger_offset', type=int, default=0,
+                        help='Stimulus trigger to start at. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
+    parser.add_argument('-t', '--manual_trigger_offset', type=int, default=0, help='Skip this many triggers')
+
 
     args = parser.parse_args()
 
@@ -53,6 +56,9 @@ if __name__ == '__main__':
 
     spike_times_dict = {cell_id: dataset.get_spike_times_for_cell(cell_id) for cell_id in all_cells}
     ttl_times = dataset.get_ttl_times()
+
+    if args.manual_trigger_offset != 0:
+        ttl_times = ttl_times[args.manual_trigger_offset:]
 
     n_samples_per_bin = SAMPLE_FREQ / args.frame_rate
 
