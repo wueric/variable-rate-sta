@@ -32,6 +32,8 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--batch', type=int, help='number of cells batch size', default=CELL_BATCH_SIZE)
     parser.add_argument('-v', '--visionwriter', type=bool, default=False, help='save in Vision .sta format')
     parser.add_argument('-j', '--jitter', action='store_true', default=False, help='Use jittered stimulus')
+    parser.add_argument('-o', '--manual_frame_offset', type=int, default=0, help='Frame offset. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
+    parser.add_argument('-t', '--manual_trigger_offset', type=int, default=0, help='Skip this many triggers')
 
 
     args = parser.parse_args()
@@ -45,10 +47,15 @@ if __name__ == '__main__':
     spike_times_dict = {cell_id: dataset.get_spike_times_for_cell(cell_id) for cell_id in all_cells}
     ttl_times = dataset.get_ttl_times()
 
+    if args.manual_trigger_offset != 0:
+        ttl_times = ttl_times[args.manual_trigger_offset:]
+
     avg_ttl_time = np.median(ttl_times[1:] - ttl_times[:-1])
     monitor_freq = 1.0 / (N_DISPLAY_FRAMES_PER_TTL * (avg_ttl_time / SAMPLE_FREQ))
 
     framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
+    if args.manual_frame_offset != 0:
+        framegen.advance_seed_n_frames(args.manual_frame_offset * N_DISPLAY_FRAMES_PER_TTL)
 
     print("Calculating STAs")
     sta_dict = bin_spike_times_by_frames(spike_times_dict,

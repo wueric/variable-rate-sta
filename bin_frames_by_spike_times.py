@@ -35,6 +35,7 @@ if __name__ == '__main__':
                         help='text file of cell ids to compute for (useful for super-large stimulus)')
     parser.add_argument('-s', '--superbatch', type=int, default=-1,
                         help='Superbatch size (use if STA accumulator too big for GPU memory)')
+    parser.add_argument('-o', '--manual_trigger_offset', type=int, default=0, help='Stimulus trigger to start at. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
 
     args = parser.parse_args()
 
@@ -58,6 +59,9 @@ if __name__ == '__main__':
     if args.superbatch == -1:
         print("Calculating STAs")
         framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
+        if args.manual_trigger_offset != 0:
+            framegen.advance_seed_n_frames(args.manual_trigger_offset * N_DISPLAY_FRAMES_PER_TTL)
+
         sta_dict = bin_frames_by_spike_times(spike_times_dict,
                                              ttl_times,
                                              framegen,
@@ -74,6 +78,9 @@ if __name__ == '__main__':
         for batch_idx, i in enumerate(range(0, len(all_cells), args.superbatch)):
             print("Batch {0}/{1}".format(batch_idx+1, n_batches))
             framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
+            if args.manual_trigger_offset != 0:
+                framegen.advance_seed_n_frames(args.manual_trigger_offset * N_DISPLAY_FRAMES_PER_TTL)
+
             relevant_cell_ids = all_cells[i:min(len(all_cells), i+args.superbatch)]
             relevant_spike_times = {cell_id : spike_times_dict[cell_id] for cell_id in relevant_cell_ids}
 
