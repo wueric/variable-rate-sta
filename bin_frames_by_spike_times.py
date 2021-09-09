@@ -1,17 +1,13 @@
 from lib.torch_sta import bin_frames_by_spike_times
-from lib.save_data import generate_save_dict
 
 import torch
+import numpy as np
 
 import visionloader as vl
 from whitenoise import RandomNoiseFrameGenerator
 
 from typing import List
-
-import pickle
 import argparse
-
-import numpy as np
 
 import h5py
 
@@ -34,7 +30,8 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--list', type=str, default=None,
                         help='text file of cell ids to compute for (useful for super-large stimulus)')
     parser.add_argument('-s', '--superbatch', type=int, default=-1,
-                        help='Superbatch size (use if STA accumulator too big for GPU memory)')
+                        help='Superbatch size (use if the stimulus resolution is too large for GPU memory, and ' + \
+                        'the full STAs for every cell cannot fit on the GPU')
     parser.add_argument('-o', '--manual_trigger_offset', type=int, default=0,
                         help='Stimulus trigger to start at. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
     parser.add_argument('-t', '--manual_trigger_offset', type=int, default=0, help='Skip this many triggers')
