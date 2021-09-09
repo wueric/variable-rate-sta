@@ -427,15 +427,19 @@ def bin_spike_times_by_frames(spikes_by_cell_id: Dict[int, np.ndarray],
                               cell_batch_size: int,
                               device: torch.device) -> Dict[int, np.ndarray]:
     '''
+    Computes STAs by binning spikes into bins corresponding to the frame transition times
 
-        :param spikes_by_cell_id:
-        :param ttl_times:
-        :param frame_generator:
-        :param frames_per_ttl:
-        :param bin_interval_samples: number of samples per bin
-        :param n_bins_depth:
-        :return:
-        '''
+    Conceptually similar to the standard STA calculation method, but uses the overlap interval
+        algorithm underneath
+
+    :param spikes_by_cell_id:
+    :param ttl_times:
+    :param frame_generator:
+    :param frames_per_ttl:
+    :param bin_interval_samples: number of samples per bin
+    :param n_bins_depth:
+    :return:
+    '''
 
     # initialize empty STAs
     height, width = frame_generator.output_dims

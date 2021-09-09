@@ -1,4 +1,4 @@
-## Alternative STA calculation methods
+## STA calculation methods for GPU
 
 ### Method 1: Temporal resampling of the white noise stimulus movie
 
@@ -22,7 +22,7 @@ from the monitor.
 Approximate runtime: about 4-8 minutes for 30 minute white noise stimulus. Stixel size doesn't appear to strongly affect
 the runtime.
 
-Saves a pickle file, contains a Dict with RGB STAs for every cell in the dataset
+Saves HDF5 output.
 
 Requires numpy, pytorch >= 1.4, usual Python infrastructure stuff. Runs on GPU.
 
@@ -35,6 +35,9 @@ python bin_frames_by_spike_times.py <analysis-path> <ds-name> <path-to-stimulus-
 * **-r**, **--frame-rate**, resampling frequency, the frequency to calculate the STAs at. Default value 120.0 
 * **-n**, **--n-frames**, STA depth, default value 51
 * **-b**, **--batch**, number of cells per batch. Default 512. Larger runs faster, too large and GPU runs out of space
+* **-j**, **--jitter**, use the jittered stimulus (jitter stimulus formula defined by the frame generator, same as what Colleen used in the SM cell paper)
+* **-s**, **--superbatch** number of cells per superbatch, useful for the case where the dimensionality of the stimulus is so large that the STAs for every cell cannot be stored on GPU simultaneously. Default not used.
+* **-l**, **--list** Optional text file to specify cell IDs to compute STAs for. Useful to speed up calculation if only interested in a small subset of the cells
 
 #### Example command
 
@@ -56,3 +59,22 @@ The Vision timecourse:
 The supersampled timecourse (supersampled at 240 Hz):
 
 ![Supersampled timecourse](example_images/supersample.png "Supersample")
+
+### Method 2: Binning spikes into frame intervals (similar to traditional STA calculation method)
+
+In this case, the algorithm uses time bins defined by interpolating between the TTLs as the STA bins. This implicitly assumes
+that the frame rate is stable, since it assumes that each frame is shown for exactly the same amount of time. This uses the 
+same overlap-interval algorithm that Method 1 uses, just with a different clocking scheme.
+
+Saves HDF5 output.
+
+#### Synopsis
+
+```shell script
+python bin_spikes_by_frame_times.py <analysis-path> <ds-name> <path-to-stimulus-xml> <path-to-save-output-pickle> [flags]
+```
+#### Options
+* **-n**, **--n-frames**, STA depth, default value 51
+* **-b**, **--batch**, number of cells per batch. Default 512. Larger runs faster, too large and GPU runs out of space
+* **-j**, **--jitter**, use the jittered stimulus (jitter stimulus formula defined by the frame generator, same as what Colleen used in the SM cell paper)
+* **-l**, **--list** Optional text file to specify cell IDs to compute STAs for. Useful to speed up calculation if only interested in a small subset of the cells
