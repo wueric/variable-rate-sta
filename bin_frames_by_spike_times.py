@@ -1,4 +1,5 @@
 from lib.torch_sta import bin_frames_by_spike_times
+from lib.trigger_interpolation import interpolate_trigger_times
 
 import torch
 import numpy as np
@@ -34,6 +35,8 @@ if __name__ == '__main__':
                         'the full STAs for every cell cannot fit on the GPU')
     parser.add_argument('-o', '--manual_trigger_offset', type=int, default=0,
                         help='Stimulus trigger to start at. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
+    parser.add_argument('-d', '--trigger_interp_deviation', type=float, default=0.1,
+                        help='maximum allowable deviation from expected trigger interval. Used for trigger interpolation')
 
     args = parser.parse_args()
 
@@ -54,6 +57,8 @@ if __name__ == '__main__':
 
     if args.manual_trigger_offset != 0:
         ttl_times = ttl_times[args.manual_trigger_offset:]
+
+    ttl_times = interpolate_trigger_times(ttl_times, deviation_interval=args.trigger_interp_deviation)
 
     n_samples_per_bin = SAMPLE_FREQ / args.frame_rate
 

@@ -1,5 +1,6 @@
 from lib.torch_sta import bin_spike_times_by_frames
 from lib.save_data import generate_save_dict
+from lib.trigger_interpolation import interpolate_trigger_times
 
 import numpy as np
 import torch
@@ -34,6 +35,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--manual_frame_offset', type=int, default=0,
                         help='Frame offset. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
     parser.add_argument('-t', '--manual_trigger_offset', type=int, default=0, help='Skip this many triggers')
+    parser.add_argument('-d', '--trigger_interp_deviation', type=float, default=0.1,
+                        help='maximum allowable deviation from expected trigger interval. Used for trigger interpolation')
 
 
     args = parser.parse_args()
@@ -49,6 +52,8 @@ if __name__ == '__main__':
 
     if args.manual_trigger_offset != 0:
         ttl_times = ttl_times[args.manual_trigger_offset:]
+
+    ttl_times = interpolate_trigger_times(ttl_times, deviation_interval=args.trigger_interp_deviation)
 
     avg_ttl_time = np.median(ttl_times[1:] - ttl_times[:-1]) # type: float
     monitor_freq = 1.0 / (N_DISPLAY_FRAMES_PER_TTL * (avg_ttl_time / SAMPLE_FREQ))
