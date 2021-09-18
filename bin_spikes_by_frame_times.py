@@ -1,5 +1,6 @@
 from lib.torch_sta import bin_spike_times_by_frames
 from lib.save_data import generate_save_dict
+from lib.trigger_interpolation import interpolate_trigger_times
 
 import numpy as np
 import torch
@@ -49,6 +50,8 @@ if __name__ == '__main__':
 
     if args.manual_trigger_offset != 0:
         ttl_times = ttl_times[args.manual_trigger_offset:]
+
+    ttl_times = interpolate_trigger_times(ttl_times, deviation_interval=args.trigger_interp_deviation)
 
     avg_ttl_time = np.median(ttl_times[1:] - ttl_times[:-1]) # type: float
     monitor_freq = 1.0 / (N_DISPLAY_FRAMES_PER_TTL * (avg_ttl_time / SAMPLE_FREQ))
