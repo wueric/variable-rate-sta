@@ -35,7 +35,7 @@ if __name__ == '__main__':
                         'the full STAs for every cell cannot fit on the GPU')
     parser.add_argument('-o', '--manual_trigger_offset', type=int, default=0,
                         help='Stimulus trigger to start at. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
-    parser.add_argument('-d', '--trigger_interp_deviation', dtype=float, default=0.1,
+    parser.add_argument('-d', '--trigger_interp_deviation', type=float, default=0.1,
                         help='maximum allowable deviation from expected trigger interval. Used for trigger interpolation')
 
     args = parser.parse_args()

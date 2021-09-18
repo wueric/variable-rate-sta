@@ -35,6 +35,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--manual_frame_offset', type=int, default=0,
                         help='Frame offset. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
     parser.add_argument('-t', '--manual_trigger_offset', type=int, default=0, help='Skip this many triggers')
+    parser.add_argument('-d', '--trigger_interp_deviation', type=float, default=0.1,
+                        help='maximum allowable deviation from expected trigger interval. Used for trigger interpolation')
 
 
     args = parser.parse_args()
