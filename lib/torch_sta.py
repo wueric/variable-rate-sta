@@ -210,7 +210,7 @@ def bin_relevant_spikes_and_advance_offsets(spikes_by_cell_id: Dict[int, np.ndar
                                             cell_order: Sequence[int],
                                             earliest_relevant_spike_sample: int,
                                             last_relevant_spike_sample: int,
-                                            advance_offset_to_time : float) \
+                                            advance_offset_to_time: float) \
         -> Tuple[Dict[int, int], Dict[int, np.ndarray], int]:
     '''
     Efficient method for grabbing the spike times T for each cell that lies within the window
@@ -339,6 +339,128 @@ def torch_batch_parallel_pack_sta_bin_select_matrix(
             )
 
     return bin_select_matrix, cell_idx_offset_post
+
+
+def lcm_frame_time_interpolation(relevant_ttl_times: np.ndarray,
+                                 display_frames_per_ttl : int,
+                                 interval : int) \
+        -> np.ndarray:
+    '''
+    Assumes that relevant_ttl_times[0] corresponds to both a TTL trigger
+        arrival and a stimulus frame transition (i.e. at this moment in time,
+        we receive a TTL signal AND the frame on the display changes)
+
+    Implementation: linspace according to the display interval for every TTL interval,
+        concatenate the resulting subdivided intervals, and then slice
+
+    :param relevant_ttl_times: np.ndarray of integer, shape (n_relevant_ttls, )
+    :param display_frames_per_ttl: number of display frames for each TTL interval,
+        integer valued. Typically 100.
+    :param interval: number of display frames per stimulus frame, integer valued,
+        typically between 1 and 20
+    :return:
+    '''
+
+    display_frame_transitions = np.linspace(relevant_ttl_times[:-1], relevant_ttl_times[1:],
+                                            display_frames_per_ttl, endpoint=False).T.reshape(-1)
+
+    stimulus_frame_transitions = display_frame_transitions[::interval]
+    return np.concatenate([stimulus_frame_transitions, np.array([relevant_ttl_times[-1]])])
+
+
+def bin_frames_by_spike_times_noninteger_interval(spikes_by_cell_id: Dict[int, np.ndarray],
+                                                  ttl_times: np.ndarray,
+                                                  frame_generator: RandomNoiseFrameGenerator,
+                                                  frames_per_ttl: int,
+                                                  bin_interval_samples: Union[int, float],
+                                                  n_bins_depth: int,
+                                                  cell_batch_size: int,
+                                                  device: torch.device) -> Dict[int, np.ndarray]:
+    '''
+    Calculates STAs by binning frames and spike times into bins where the
+        master clock frequency is determined by the electrical sampling rate
+        rather than by the stimulus / display
+
+    :param spikes_by_cell_id: Dict, int cell id -> sorted spike time vector
+    :param ttl_times: array of TTL times, units of samples
+    :param frame_generator: frame generator object
+    :param frames_per_ttl: Number of raw display frames corresponding to one TTL interval,
+        typically something like 100
+    :param bin_interval_samples: number of samples per bin, can be noninteger
+        since obviously the electrical ADC sample rate may not be an integer multiple
+        of the target STA frame rate and the
+    :param n_bins_depth: Depth (integer number of "frames") of the STA
+    :return: Dict, int cell id -> STA matrix
+    '''
+
+    # initialize empty STAs
+    height, width = frame_generator.output_dims
+    cell_order = list(spikes_by_cell_id.keys())
+    n_cells = len(cell_order)
+
+    spikes_idx_offset = {cell_id: 0 for cell_id in spikes_by_cell_id.keys()}
+
+    # outer loop is time
+    # note that STAs are only about 25-50 frames worth
+    # so we only need to keep two batches of frames around
+    sta_buffer = torch.zeros((n_cells, n_bins_depth, height, width, 3), dtype=torch.float32, device=device)
+
+    # Stimulus intervals (number of display frames that generated frame is shown for)
+    # can vary (could be 1, 2, 3, 4, 12, maybe 20 at most)
+    # The raw number of frames between trigger times may not be evenly divided by the interval
+    # so we need to be careful with how many frames we grab at a time
+
+    # New calculation strategy:
+    # Figure out an appropriate fixed number of frames to grab from the stimulus
+    # The simple thing to do here is to always grab LCM(frames_per_ttl, interval) stimulus frames)
+    # at a time, which will correspond to >= 1 integer TTL interval
+    # We have to do the frame-time interpolation with that in mind
+    # We also have to handle the end of the stimulus nicely, since
+
+    n_frame_blocks = ttl_times.shape[0] - 1
+    n_distinct_frames = np.lcm(frames_per_ttl, frame_generator.refresh_interval)
+    ttl_step_size = int(n_distinct_frames // frames_per_ttl)
+
+    pbar = tqdm.tqdm(total=n_frame_blocks)
+    # compute STA contribution for block of frames corresponding to 1 TTL interval
+    # Note that spikes from slightly after the end of the last frame in the interval
+    # can contribute to the STA, since the STA includes a window of time before the spike
+    for i in range(0, ttl_times.shape[0] - 1, ttl_step_size):
+
+        relevant_ttls = ttl_times[i:i+ttl_step_size+1]
+
+        # shape (frames_per_ttl, width, height, 3)
+        frame_batch = frame_generator.generate_block_of_frames(n_distinct_frames)
+
+        frame_batch_torch = (torch.tensor(frame_batch, dtype=torch.float32, device=device) - 127.5) / 255.0
+
+        stimulus_transition_times = lcm_frame_time_interpolation(
+            relevant_ttls, frames_per_ttl, frame_generator.refresh_interval
+        )
+
+        weights_matrix, spikes_idx_offset = torch_batch_parallel_pack_sta_bin_select_matrix(
+            spikes_by_cell_id,
+            spikes_idx_offset,
+            cell_order,
+            n_bins_depth,
+            bin_interval_samples,
+            stimulus_transition_times,
+            cell_batch_size,
+            device
+        )
+
+        sta_buffer += torch.einsum('cdf,fwht->cdwht', weights_matrix, frame_batch_torch)
+
+        pbar.update(ttl_step_size)
+    pbar.close()
+
+    sta_buffer_np = sta_buffer.cpu().numpy()
+
+    sta_dict = {}  # type: Dict[int, np.ndarray]
+    for idx, cell_id in enumerate(cell_order):
+        sta_dict[cell_id] = sta_buffer_np[idx, ...] / spikes_by_cell_id[cell_id].shape[0]
+
+    return sta_dict
 
 
 def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
