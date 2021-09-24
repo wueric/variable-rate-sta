@@ -1,4 +1,4 @@
-from lib.torch_sta import bin_frames_by_spike_times
+from lib.torch_sta import bin_frames_by_spike_times, bin_frames_by_spike_times_noninteger_interval
 from lib.trigger_interpolation import interpolate_trigger_times
 
 import torch
@@ -32,7 +32,7 @@ if __name__ == '__main__':
                         help='text file of cell ids to compute for (useful for super-large stimulus)')
     parser.add_argument('-s', '--superbatch', type=int, default=-1,
                         help='Superbatch size (use if the stimulus resolution is too large for GPU memory, and ' + \
-                        'the full STAs for every cell cannot fit on the GPU')
+                             'the full STAs for every cell cannot fit on the GPU')
     parser.add_argument('-o', '--manual_trigger_offset', type=int, default=0,
                         help='Stimulus trigger to start at. Example: if N, the first trigger in the .neurons file is associated with N * N_DISPLAY_FRAMES_PER_TTL frames after the start of the stimulus')
     parser.add_argument('-d', '--trigger_interp_deviation', type=float, default=0.1,
@@ -68,6 +68,7 @@ if __name__ == '__main__':
         if args.manual_trigger_offset != 0:
             framegen.advance_seed_n_frames(args.manual_trigger_offset * N_DISPLAY_FRAMES_PER_TTL)
 
+        '''
         sta_dict = bin_frames_by_spike_times(spike_times_dict,
                                              ttl_times,
                                              framegen,
@@ -76,20 +77,31 @@ if __name__ == '__main__':
                                              args.n_frames,
                                              args.batch,
                                              device)
+        '''
+
+        sta_dict = bin_frames_by_spike_times_noninteger_interval(spike_times_dict,
+                                                                 ttl_times,
+                                                                 framegen,
+                                                                 N_DISPLAY_FRAMES_PER_TTL,
+                                                                 n_samples_per_bin,
+                                                                 args.n_frames,
+                                                                 args.batch,
+                                                                 device)
     else:
         print("Calculating STAs batched by cell")
         sta_dict = {}
 
         n_batches = int(np.ceil(len(all_cells) / args.superbatch))
         for batch_idx, i in enumerate(range(0, len(all_cells), args.superbatch)):
-            print("Batch {0}/{1}".format(batch_idx+1, n_batches))
+            print("Batch {0}/{1}".format(batch_idx + 1, n_batches))
             framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
             if args.manual_trigger_offset != 0:
                 framegen.advance_seed_n_frames(args.manual_trigger_offset * N_DISPLAY_FRAMES_PER_TTL)
 
-            relevant_cell_ids = all_cells[i:min(len(all_cells), i+args.superbatch)]
-            relevant_spike_times = {cell_id : spike_times_dict[cell_id] for cell_id in relevant_cell_ids}
+            relevant_cell_ids = all_cells[i:min(len(all_cells), i + args.superbatch)]
+            relevant_spike_times = {cell_id: spike_times_dict[cell_id] for cell_id in relevant_cell_ids}
 
+            '''
             partial_sta_dict = bin_frames_by_spike_times(relevant_spike_times,
                                                          ttl_times,
                                                          framegen,
@@ -98,6 +110,16 @@ if __name__ == '__main__':
                                                          args.n_frames,
                                                          args.batch,
                                                          device)
+            '''
+
+            partial_sta_dict = bin_frames_by_spike_times_noninteger_interval(relevant_spike_times,
+                                                                             ttl_times,
+                                                                             framegen,
+                                                                             N_DISPLAY_FRAMES_PER_TTL,
+                                                                             n_samples_per_bin,
+                                                                             args.n_frames,
+                                                                             args.batch,
+                                                                             device)
 
             for cell_id, sta_mat in partial_sta_dict.items():
                 sta_dict[cell_id] = sta_mat
