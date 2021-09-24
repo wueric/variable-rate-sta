@@ -417,20 +417,21 @@ def bin_frames_by_spike_times_noninteger_interval(spikes_by_cell_id: Dict[int, n
     # We have to do the frame-time interpolation with that in mind
     # We also have to handle the end of the stimulus nicely, since
 
-    n_frame_blocks = ttl_times.shape[0] - 1
-    n_distinct_frames = np.lcm(frames_per_ttl, frame_generator.refresh_interval)
-    ttl_step_size = int(n_distinct_frames // frames_per_ttl)
+    n_display_frames = np.lcm(frames_per_ttl, frame_generator.refresh_interval)
+    n_distinct_stimulus_frames = int(n_display_frames // frame_generator.refresh_interval)
+    ttl_step_size = int(n_display_frames // frames_per_ttl)
+    n_frame_blocks = ttl_times.shape[0] - ttl_step_size
 
     pbar = tqdm.tqdm(total=n_frame_blocks)
     # compute STA contribution for block of frames corresponding to 1 TTL interval
     # Note that spikes from slightly after the end of the last frame in the interval
     # can contribute to the STA, since the STA includes a window of time before the spike
-    for i in range(0, ttl_times.shape[0] - 1, ttl_step_size):
+    for i in range(0, n_frame_blocks, ttl_step_size):
 
         relevant_ttls = ttl_times[i:i+ttl_step_size+1]
 
         # shape (frames_per_ttl, width, height, 3)
-        frame_batch = frame_generator.generate_block_of_frames(n_distinct_frames)
+        frame_batch = frame_generator.generate_block_of_frames(n_distinct_stimulus_frames)
 
         frame_batch_torch = (torch.tensor(frame_batch, dtype=torch.float32, device=device) - 127.5) / 255.0
 
@@ -487,6 +488,9 @@ def bin_frames_by_spike_times(spikes_by_cell_id: Dict[int, np.ndarray],
     :param n_bins_depth: Depth (integer number of "frames") of the STA
     :return: Dict, int cell id -> STA matrix
     '''
+
+    warnings.warn("Use bin_frames_by_spike_times_noninteger_interval instead of bin_frames_by_spike_times",
+                  DeprecationWarning)
 
     # initialize empty STAs
     height, width = frame_generator.output_dims
