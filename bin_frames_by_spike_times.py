@@ -1,4 +1,4 @@
-from lib.torch_sta import bin_frames_by_spike_times, bin_frames_by_spike_times_noninteger_interval
+from lib.torch_sta import bin_frames_by_spike_times_noninteger_interval
 from lib.trigger_interpolation import interpolate_trigger_times
 
 import torch
@@ -7,7 +7,7 @@ import numpy as np
 import visionloader as vl
 from whitenoise import RandomNoiseFrameGenerator
 
-from typing import List
+from typing import List, Dict
 import argparse
 
 import h5py
@@ -15,6 +15,13 @@ import h5py
 CELL_BATCH_SIZE = 512
 N_DISPLAY_FRAMES_PER_TTL = 100
 SAMPLE_FREQ = 20000
+
+
+def write_stas_to_h5(h5_handle,
+                     sta_dict: Dict[int, np.ndarray]) -> None:
+    for cell_id, sta_tensor in sta_dict.items():
+        h5_handle.create_dataset(str(cell_id), data=sta_tensor)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -68,17 +75,6 @@ if __name__ == '__main__':
         if args.manual_trigger_offset != 0:
             framegen.advance_seed_n_frames(args.manual_trigger_offset * N_DISPLAY_FRAMES_PER_TTL)
 
-        '''
-        sta_dict = bin_frames_by_spike_times(spike_times_dict,
-                                             ttl_times,
-                                             framegen,
-                                             N_DISPLAY_FRAMES_PER_TTL,
-                                             n_samples_per_bin,
-                                             args.n_frames,
-                                             args.batch,
-                                             device)
-        '''
-
         sta_dict = bin_frames_by_spike_times_noninteger_interval(spike_times_dict,
                                                                  ttl_times,
                                                                  framegen,
@@ -87,44 +83,33 @@ if __name__ == '__main__':
                                                                  args.n_frames,
                                                                  args.batch,
                                                                  device)
+
+        print("Writing STAs")
+        with h5py.File(args.output, 'w') as h5_file:
+            write_stas_to_h5(h5_file, sta_dict)
+
     else:
         print("Calculating STAs batched by cell")
-        sta_dict = {}
 
-        n_batches = int(np.ceil(len(all_cells) / args.superbatch))
-        for batch_idx, i in enumerate(range(0, len(all_cells), args.superbatch)):
-            print("Batch {0}/{1}".format(batch_idx + 1, n_batches))
-            framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
-            if args.manual_trigger_offset != 0:
-                framegen.advance_seed_n_frames(args.manual_trigger_offset * N_DISPLAY_FRAMES_PER_TTL)
+        with h5py.File(args.output, 'w') as h5_file:
 
-            relevant_cell_ids = all_cells[i:min(len(all_cells), i + args.superbatch)]
-            relevant_spike_times = {cell_id: spike_times_dict[cell_id] for cell_id in relevant_cell_ids}
+            n_batches = int(np.ceil(len(all_cells) / args.superbatch))
+            for batch_idx, i in enumerate(range(0, len(all_cells), args.superbatch)):
+                print("Batch {0}/{1}".format(batch_idx + 1, n_batches))
+                framegen = RandomNoiseFrameGenerator.construct_from_xml(args.xml_path, args.jitter)
+                if args.manual_trigger_offset != 0:
+                    framegen.advance_seed_n_frames(args.manual_trigger_offset * N_DISPLAY_FRAMES_PER_TTL)
 
-            '''
-            partial_sta_dict = bin_frames_by_spike_times(relevant_spike_times,
-                                                         ttl_times,
-                                                         framegen,
-                                                         N_DISPLAY_FRAMES_PER_TTL,
-                                                         n_samples_per_bin,
-                                                         args.n_frames,
-                                                         args.batch,
-                                                         device)
-            '''
+                relevant_cell_ids = all_cells[i:min(len(all_cells), i + args.superbatch)]
+                relevant_spike_times = {cell_id: spike_times_dict[cell_id] for cell_id in relevant_cell_ids}
 
-            partial_sta_dict = bin_frames_by_spike_times_noninteger_interval(relevant_spike_times,
-                                                                             ttl_times,
-                                                                             framegen,
-                                                                             N_DISPLAY_FRAMES_PER_TTL,
-                                                                             n_samples_per_bin,
-                                                                             args.n_frames,
-                                                                             args.batch,
-                                                                             device)
+                partial_sta_dict = bin_frames_by_spike_times_noninteger_interval(relevant_spike_times,
+                                                                                 ttl_times,
+                                                                                 framegen,
+                                                                                 N_DISPLAY_FRAMES_PER_TTL,
+                                                                                 n_samples_per_bin,
+                                                                                 args.n_frames,
+                                                                                 args.batch,
+                                                                                 device)
 
-            for cell_id, sta_mat in partial_sta_dict.items():
-                sta_dict[cell_id] = sta_mat
-
-    print("Writing STAs")
-    with h5py.File(args.output, 'w') as h5_file:
-        for cell_id, sta_mat in sta_dict.items():
-            h5_file.create_dataset(str(cell_id), data=sta_mat)
+                write_stas_to_h5(h5_file, partial_sta_dict)
